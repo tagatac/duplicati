@@ -24,6 +24,7 @@ using System.Linq;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Duplicati.Library.Utility
 {
@@ -33,6 +34,11 @@ namespace Duplicati.Library.Utility
         /// Size of buffers for copying stream
         /// </summary>
         public static long DEFAULT_BUFFER_SIZE => SystemContextSettings.Buffersize;
+
+        /// <summary>
+        /// A cache of the FileSystemCaseSensitive property, which is computed upon the first access.
+        /// </summary>
+        private static bool? CachedIsFSCaseSensitive = null;
 
         /// <summary>
         /// Gets the hash algorithm used for calculating a hash
@@ -686,7 +692,40 @@ namespace Duplicati.Library.Utility
                 return ParseBool(opt, true);
             else
                 return false;
+        }
 
+        /// <summary>
+        /// Parses an enum found in the options dictionary
+        /// </summary>
+        /// <returns>The parsed or default enum value.</returns>
+        /// <param name="options">The set of options to look for the setting in</param>
+        /// <param name="value">The value to look for in the settings</param>
+        /// <param name="default">The default value to return if there are no matches.</param>
+        /// <typeparam name="T">The enum type parameter.</typeparam>
+        public static T ParseEnumOption<T>(IDictionary<string, string> options, string value, T @default)
+        {
+            string opt;
+            if (options.TryGetValue(value, out opt))
+                return ParseEnum<T>(opt, @default);
+            else
+                return @default;
+
+        }
+
+        /// <summary>
+        /// Attempts to parse an enum with case-insensitive lookup, returning the default value if there was no match
+        /// </summary>
+        /// <returns>The parsed or default enum value.</returns>
+        /// <param name="value">The string to parse.</param>
+        /// <param name="default">The default value to return if there are no matches.</param>
+        /// <typeparam name="T">The enum type parameter.</typeparam>
+        public static T ParseEnum<T>(string value, T @default)
+        {
+            foreach (string s in Enum.GetNames(typeof(T)))
+                if (s.Equals(value, StringComparison.OrdinalIgnoreCase))
+                    return (T)Enum.Parse(typeof(T), s);
+
+            return @default;
         }
 
         /// <summary>
@@ -833,13 +872,19 @@ namespace Duplicati.Library.Utility
         {
             get
             {
-                var str = Environment.GetEnvironmentVariable("FILESYSTEM_CASE_SENSITIVE");
+                if (!CachedIsFSCaseSensitive.HasValue)
+                {
+                    var str = Environment.GetEnvironmentVariable("FILESYSTEM_CASE_SENSITIVE");
 
-                // TODO: This should probably be determined by filesystem rather than OS,
-                // OSX can actually have the disks formated as Case Sensitive, but insensitive is default
-                Func<bool> defaultReply = () => Utility.IsClientLinux && !Utility.IsClientOSX;
+                    // TODO: This should probably be determined by filesystem rather than OS,
+                    // OSX can actually have the disks formated as Case Sensitive, but insensitive is default
 
-                return Utility.ParseBool(str, defaultReply);
+                    Func<bool> defaultReply = () => Utility.IsClientLinux && !Utility.IsClientOSX;
+
+                    CachedIsFSCaseSensitive = Utility.ParseBool(str, defaultReply);
+                }
+
+                return CachedIsFSCaseSensitive.Value;
             }
         }
 
@@ -1571,6 +1616,32 @@ namespace Duplicati.Library.Utility
         public static string WrapAsCommandLine(IEnumerable<string> args, bool allowEnvExpansion = false)
         {
             return string.Join(" ", args.Select(x => WrapCommandLineElement(x, allowEnvExpansion)));
+        }
+
+        /// <summary>
+        /// Utility method that emulates C#'s built in await keyword without requiring the calling method to be async.
+        /// This method should be preferred over using Task.Result, as it doesn't wrap singular exceptions in AggregateExceptions.
+        /// (It uses Task.GetAwaiter().GetResult(), which is the same thing that await uses under the covers.)
+        /// https://stackoverflow.com/questions/17284517/is-task-result-the-same-as-getawaiter-getresult
+        /// </summary>
+        /// <param name="task">Task to await</param>
+        public static void Await(this Task task)
+        {
+            task.GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Utility method that emulates C#'s built in await keyword without requiring the calling method to be async.
+        /// This method should be preferred over using Task.Result, as it doesn't wrap singular exceptions in AggregateExceptions.
+        /// (It uses Task.GetAwaiter().GetResult(), which is the same thing that await uses under the covers.)
+        /// https://stackoverflow.com/questions/17284517/is-task-result-the-same-as-getawaiter-getresult
+        /// </summary>
+        /// <typeparam name="T">Result type</typeparam>
+        /// <param name="task">Task to await</param>
+        /// <returns>Task result</returns>
+        public static T Await<T>(this Task<T> task)
+        {
+            return task.GetAwaiter().GetResult();
         }
     }
 }
